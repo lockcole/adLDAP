@@ -181,6 +181,13 @@ class adLDAP {
     */ 
     protected $ldapConnection;
     protected $ldapBind;
+
+    /**
+     * Charset used for internal encoding
+     *
+     * @var string
+     */
+    public $charset = 'iso-8859-1';
     
     /**
     * Get the active LDAP Connection
@@ -592,6 +599,11 @@ class adLDAP {
                     $this->setUseSSO(false);
                 }
             } 
+
+            if (isset($options['charset']))
+            {
+                $this->charset = strtolower($options['charset']);
+            }
         }
         
         if ($this->ldapSupported() === false) {

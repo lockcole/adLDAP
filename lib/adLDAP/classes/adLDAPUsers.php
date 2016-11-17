@@ -69,6 +69,8 @@ class adLDAPUsers {
     * Create a user
     * 
     * If you specify a password here, this can only be performed over SSL
+    *
+    * Extended to allow to specify $attribute["container"] as string, because array hardcodes "OU=", while Samba4 and win2008r2 uses "CN=Users"
     * 
     * @param array $attributes The attributes to set to the user account
     * @return bool
@@ -80,22 +82,23 @@ class adLDAPUsers {
         if (!array_key_exists("surname", $attributes)) { return "Missing compulsory field [surname]"; }
         if (!array_key_exists("email", $attributes)) { return "Missing compulsory field [email]"; }
         if (!array_key_exists("container", $attributes)) { return "Missing compulsory field [container]"; }
-        if (!is_array($attributes["container"])) { return "Container attribute must be an array."; }
+        if (empty($attributes["container"])) { return "Container attribute must be an array or string."; }
 
-        if (array_key_exists("password",$attributes) && (!$this->adldap->getUseSSL() && !$this->adldap->getUseTLS())) { 
+        if (array_key_exists("password",$attributes) && (!$this->adldap->getUseSSL() && !$this->adldap->getUseTLS())) {
             throw new \adLDAP\adLDAPException('SSL must be configured on your webserver and enabled in the class to set passwords.');
         }
 
-        if (!array_key_exists("display_name", $attributes)) { 
-            $attributes["display_name"] = $attributes["firstname"] . " " . $attributes["surname"]; 
+        if (!array_key_exists("display_name", $attributes)) {
+            $attributes["display_name"] = $attributes["firstname"] . " " . $attributes["surname"];
         }
 
         // Translate the schema
         $add = $this->adldap->adldap_schema($attributes);
-        
+
         // Additional stuff only used for adding accounts
-        $add["cn"][0] = $attributes["display_name"];
+        $add["cn"][0] = $attributes["username"];
         $add["samaccountname"][0] = $attributes["username"];
+        $add["userPrincipalName"][0] = $attributes["username"].$this->adldap->getAccountSuffix();
         $add["objectclass"][0] = "top";
         $add["objectclass"][1] = "person";
         $add["objectclass"][2] = "organizationalPerson";
@@ -103,21 +106,52 @@ class adLDAPUsers {
         //$add["name"][0]=$attributes["firstname"]." ".$attributes["surname"];
 
         // Set the account control attribute
+        // $control_options = array("NORMAL_ACCOUNT", "ACCOUNTDISABLE");
         $control_options = array("NORMAL_ACCOUNT");
-        if (!$attributes["enabled"]) { 
+        if (isset($attributes["enabled"]) && $attributes["enabled"] === 0) { 
             $control_options[] = "ACCOUNTDISABLE"; 
         }
+        if (!empty($attributes["password_never_expire"]) && $attributes["password_never_expire"] == true) { 
+            $control_options[] = "DONT_EXPIRE_PASSWORD"; 
+        }
         $add["userAccountControl"][0] = $this->accountControl($control_options);
-        
+
         // Determine the container
-        $attributes["container"] = array_reverse($attributes["container"]);
-        $container = "OU=" . implode(", OU=",$attributes["container"]);
+        if (is_array($attributes['container'])) {
+            $attributes["container"] = array_reverse($attributes["container"]);
+            $attributes["container"] = "OU=" . implode(",OU=",$attributes["container"]);
+        }
+        // we can NOT set password with ldap_add or ldap_modify, it needs ldap_mod_replace, at least under Win2008r2
+        // unset($add['unicodePwd']);
 
         // Add the entry
-        $result = @ldap_add($this->adldap->getLdapConnection(), "CN=" . $add["cn"][0] . ", " . $container . "," . $this->adldap->getBaseDn(), $add);
-        if ($result != true) { 
-            return false; 
+        $result = ldap_add($ds=$this->adldap->getLdapConnection(), $dn="CN=" . $add["cn"][0] . "," . $attributes["container"] . "," . $this->adldap->getBaseDn(), $add);
+        if ($result != true) {
+            // error_log(__METHOD__."(".array2string($attributes).") ldap_add($ds, '$dn', ".array2string($add).") returned ".array2string($result)." ldap_error()=".ldap_error($ds));
+            // print_r(__METHOD__."(".print_r($attributes, true).") ldap_add($ds, '$dn', ".print_r($add, true).") returned ".print_r($result, true)." ldap_error()=".ldap_error($ds));
+            return false;
         }
+
+        // this block require porting of some other code from http://svn.stylite.de/egroupware/trunk/egroupware/api/src/Accounts/Ads.php
+        // see: https://github.com/adldap/adLDAP/issues/1
+        // // now password can be added to still disabled account
+        // if (array_key_exists("password",$attributes))
+        // {
+        //     if (!$this->setPassword($dn, $attributes['password'])) return false;
+
+        //     // now account can be enabled
+        //     if ($attributes["enabled"])
+        //     {
+        //         $control_options = array("NORMAL_ACCOUNT");
+        //         $mod = array("userAccountControl" => $this->accountControl($control_options));
+        //         $result = ldap_modify($ds, $dn, $mod);
+        //         if (!$result) {
+        //             // error_log(__METHOD__."(".array2string($attributes).") ldap_modify($ds, '$dn', ".array2string($mod).") returned ".array2string($result)." ldap_error()=".ldap_error($ds));
+        //             print_r(__METHOD__."(".array2string($attributes).") ldap_modify($ds, '$dn', ".array2string($mod).") returned ".array2string($result)." ldap_error()=".ldap_error($ds));
+        //         }
+        //     }
+        // }
+
         return true;
     }
     
@@ -488,15 +522,53 @@ class adLDAPUsers {
         }
         return true;
     }
+
+    /**
+     * Set a password
+     *
+     * Requires "Reset password" priviledges from bind user!
+     *
+     * We can NOT set password with ldap_add or ldap_modify, it needs ldap_mod_replace, at least under Win2008r2!
+     *
+     * @param string $dn
+     * @param string $password
+     * @return boolean
+     */
+    public function setPassword($dn, $password)
+    {
+        $result = ldap_mod_replace($ds=$this->adldap->getLdapConnection(), $dn, array(
+            'unicodePwd' => $this->encodePassword($password),
+        ));
+        if (!$result) error_log(__METHOD__."('$dn', '$password') ldap_mod_replace($ds, '$dn', \$password) returned FALSE: ".ldap_error($ds));
+        return $result;
+    }
+
+    /**
+     * Check if we can to a real password change, not just a password reset
+     *
+     * Requires PHP 5.4 >= 5.4.26, PHP 5.5 >= 5.5.10 or PHP 5.6 >= 5.6.0
+     *
+     * @return boolean
+     */
+    public static function changePasswordSupported()
+    {
+        return function_exists('ldap_modify_batch');
+    }
     
     /**
     * Encode a password for transmission over LDAP
+    *
+    * Extended to use mbstring to convert from arbitrary charset to UTF-16LE
     *
     * @param string $password The password to encode
     * @return string
     */
     public function encodePassword($password) {
         $password="\"".$password."\"";
+        if (function_exists('mb_convert_encoding'))
+        {
+            return mb_convert_encoding($password, 'UTF-16LE', $this->adldap->charset);
+        }
         $encoded="";
         for ($i=0; $i <strlen($password); $i++) { $encoded.="{$password{$i}}\000"; }
         return $encoded;
