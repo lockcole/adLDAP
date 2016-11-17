@@ -1,8 +1,7 @@
 # PHP LDAP CLASS FOR MANIPULATING ACTIVE DIRECTORY
 
-*Current Stable Version 4.0.0 https://github.com/adldap/adLDAP/releases/tag/v4.0.4*
+* This is a fork from [adldap/adLDAP](https://github.com/adldap/adLDAP). See [commits](https://github.com/lockcole/adLDAP/commits/4.0.4-fix) for fixes I had made. *
 
-*Next Version 5.0.0*
 
 Written by Scott Barnett, Richard Hyland
 email: scott@wiggumworld.com, adldap@richardhyland.com
