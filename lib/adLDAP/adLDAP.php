@@ -937,7 +937,7 @@ class adLDAP {
     /**
     * Convert 8bit characters e.g. accented characters to UTF8 encoded characters
     */
-    protected function encode8Bit(&$item, $key) {
+    protected function encode8Bit_old(&$item, $key) {
         $encode = false;
         if (is_string($item)) {
             for ($i=0; $i<strlen($item); $i++) {
@@ -947,7 +947,29 @@ class adLDAP {
             }
         }
         if ($encode === true && $key != 'password') {
+            var_dump($item);
             $item = utf8_encode($item);   
+            var_dump($item);
+        }
+    }
+
+    /**
+    * Convert 8bit characters e.g. accented characters to UTF8 encoded characters
+    *
+    * Extended to use mbstring to convert from arbitrary charset to utf-8
+    */
+    protected function encode8Bit(&$item, $key)
+    {
+        if ($this->charset != 'utf-8' && $key != 'password')
+        {
+            if (function_exists('mb_convert_encoding'))
+            {
+                $item = mb_convert_encoding($item, 'utf-8', $this->charset);
+            }
+            else
+            {
+                $this->encode8Bit_old($item, $key);
+            }
         }
     }
     
