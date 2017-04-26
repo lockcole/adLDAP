@@ -106,7 +106,7 @@ class adLDAPGroups {
         
         // Find the group's dn
         $groupInfo = $this->info($group, array("cn"));
-        if ($groupInfo[0]["dn"] === NULL) { 
+        if (!isset($groupInfo[0]) || $groupInfo[0]["dn"] === NULL) { 
             return false; 
         }
         $groupDn = $groupInfo[0]["dn"];
