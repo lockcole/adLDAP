@@ -653,16 +653,22 @@ class adLDAPUsers {
     * @param string $searchField Field to search search for
     * @param string $searchFilter Value to search for in the specified field
     * @param bool $sorted Sort the user accounts
+    * @param string $rawSearchStr Raw LDAP Search filter string. If it is not null, values of $searchField and $searchFilter will be ignored.
     * @return array
     */
-    public function find($includeDescription = false, $searchField = false, $searchFilter = false, $sorted = true) {
+    public function find($includeDescription = false, $searchField = false, $searchFilter = false, $sorted = true, $rawSearchStr = null) {
         if (!$this->adldap->getLdapBind()) { return false; }
           
         // Perform the search and grab all their details
         $searchParams = "";
-        if ($searchField) {
-            $searchParams = "(" . $searchField . "=" . $searchFilter . ")";
-        }                           
+        if($rawSearchStr !== null) {
+            $searchParams = $rawSearchStr;
+        } else {
+            if ($searchField) {
+                $searchParams = "(" . $searchField . "=" . $searchFilter . ")";
+            }                           
+        }
+        
         $filter = "(&(objectClass=user)(samaccounttype=" . adLDAP::ADLDAP_NORMAL_ACCOUNT .")(objectCategory=person)" . $searchParams . ")";
         $fields = array("samaccountname","displayname");
         $sr = ldap_search($this->adldap->getLdapConnection(), $this->adldap->getBaseDn(), $filter, $fields);
